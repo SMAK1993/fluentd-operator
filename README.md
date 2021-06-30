@@ -2,12 +2,25 @@
 
 ## Description
 
-TODO: Describe your charm in a few paragraphs of Markdown
+The Fluentd Operator allows you to unify data collection and consumption for better use and understanding of data.
+
+## Install Dependencies and Build
+
+To build the charm, first install `charmcraft`,  `juju` and `microk8s`
+
+    snap install charmcraft
+    snap install juju --classic
+    snap install microk8s --classic 
+
+Then in this git repository run the command
+
+    charmcraft pack
 
 ## Usage
 
-TODO: Provide high-level usage, such as required config or relations
+    juju deploy ./fluentd-operator.charm
 
+> Note: HA functionality not yet supported so juju add-unit and juju scale commands will produce errors and/or split brain scenarios
 
 ## Developing
 
