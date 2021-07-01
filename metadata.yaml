@@ -5,7 +5,7 @@ description: |
   Fluentd is an open-source data collector for a unified logging layer.
   Fluentd allows you to unify data collection and consumption for better use and understanding of data.
 summary: |
-  A fluentd operator for kubernetes.
+  A fluentd operator for kubernetes that uses the elasticsearch output plugin.
 
 containers:
   fluentd:
@@ -14,5 +14,5 @@ containers:
 resources:
   fluentd-image:
     type: oci-image
-    description: OCI image for fluentd (fluent/fluentd)
+    description: OCI image for fluentd (fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch)
 

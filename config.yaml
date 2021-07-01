@@ -8,7 +8,11 @@
 # Learn more about config at: https://juju.is/docs/sdk/config
 
 options:
-  thing:
-    default: 🎁
-    description: A thing used by the charm.
+  elasticsearch-hostname:
+    default: "localhost"
+    description: The hostname of your Elasticsearch node
+    type: string
+  elasticsearch-port:
+    default: "9200"
+    description: The port number of your Elasticsearch node
     type: string
