@@ -19,7 +19,7 @@ Then in this git repository run the command
 ## Usage
 
     juju deploy ./fluentd-operator.charm \
-        --resource fluentd-image=fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch \
+        --resource fluentd-image=fluent/fluentd-kubernetes-daemonset:v1.12.4-debian-elasticsearch6-1.1 \
         --config elasticsearch-hostname="<elasticsearch-hostname>"
 
 > Note: HA functionality not yet supported so juju add-unit and juju scale commands will produce errors and/or split brain scenarios
