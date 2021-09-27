@@ -10,24 +10,14 @@ summary: |
 containers:
   fluentd:
     resource: fluentd-image
-    mounts:
-      - storage: varlog
-        location: /var/log
-      - storage: dockercontainerlogdirectory
-        location: /var/log/pods
 
 resources:
   fluentd-image:
     type: oci-image
-    description: OCI image for fluentd (fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch)
+    description: OCI image for fluentd (karimsye/custom-fluentd:latest)
 
-storage:
-  varlog:
-    type: filesystem
-    description: Storage mount for application logs
-    location: /var/log
-  dockercontainerlogdirectory:
-    type: filesystem
-    description: Storage mount for application logs
-    location: /var/log/pods
-    read-only: true
+requires:
+  elasticsearch:
+    interface: elasticsearch-datastore
+    optional: true
+    limit: 1

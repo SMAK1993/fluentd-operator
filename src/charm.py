@@ -31,12 +31,12 @@ class FluentdOperatorCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        # self.framework.observe(self.on.fortune_action, self._on_fortune_action)
+        self.framework.observe(self.on.elasticsearch_relation_changed, self._on_elasticsearch_relation_changed)
+        # self.framework.observe(self.on.elasticsearch_relation_broken, self._on_elasticsearch_relation_broken)
         self._stored.set_default(things=[])
 
     def _on_config_changed(self, event):
         """Handle the config changed event."""
-        # return
         # Get a reference to the container so we can manipulate it
         container = self.unit.get_container("fluentd")
         # Create a new config layer - specify 'override: merge' in the 'fluentd'
@@ -48,13 +48,10 @@ class FluentdOperatorCharm(CharmBase):
                 "fluentd": {
                     "override": "replace",
                     "summary": "fluentd service",
-                    # "command": "/bin/entrypoint.sh",
-                    "command": "tini -- /fluentd/entrypoint.sh",
+                    "command": "tini -- /bin/entrypoint.sh fluentd",
                     "startup": "enabled",
                     "environment": {"FLUENT_ELASTICSEARCH_HOST": self.model.config["elasticsearch-hostname"],
                                     "FLUENT_ELASTICSEARCH_PORT": self.model.config["elasticsearch-port"],
-                                    "FLUENT_ELASTICSEARCH_SSL_VERIFY": "false",
-                                    "FLUENTD_SYSTEMD_CONF": "disable"
                                    },
                 }
             },
@@ -84,6 +81,33 @@ class FluentdOperatorCharm(CharmBase):
             logging.info("Restarted fluentd service")
         # All is well, set an ActiveStatus
         self.unit.status = ActiveStatus()
+
+    def _on_elasticsearch_relation_changed(self, event) -> None:
+        # Do nothing if we're not the leader
+        if not self.unit.is_leader():
+            return
+
+        # Check if the remote unit has set the 'port' field in the
+        # application data bucket
+        host = event.relation.data[event.unit].get("private-address")
+        logging.info(host)
+        port = event.relation.data[event.unit].get("port")
+        logging.info(port)
+
+        # Store some data from the relation in local state
+        # self._stored.things.update({event.relation.id: {"port": port}})
+
+        # Fetch data from the unit data bag if available
+        # if event.unit:
+        #     unit_field = event.relation.data[event.unit].get("special-field")
+        #     logger.info("Got data in the unit bag from the relation: %s", unit_field)
+
+        # Set some application data for the remote application
+        # to consume. We can do this because we're the leader
+        # event.relation.data[self.app].update({"token": f"{uuid4()}"})
+
+        # Do something
+        # self._on_config_changed(event)
 
 
 if __name__ == "__main__":
