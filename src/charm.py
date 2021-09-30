@@ -32,8 +32,46 @@ class FluentdOperatorCharm(CharmBase):
         super().__init__(*args)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.elasticsearch_relation_changed, self._on_elasticsearch_relation_changed)
-        # self.framework.observe(self.on.elasticsearch_relation_broken, self._on_elasticsearch_relation_broken)
-        self._stored.set_default(things=[])
+        self.framework.observe(self.on.elasticsearch_relation_broken, self._on_elasticsearch_relation_broken)
+        self.framework.observe(self.on.update_status, self._on_update_status)
+        self._stored.set_default(data={
+            "fluentConfig": """
+                <source>
+                    @type forward
+                    port 24224
+                </source>
+
+                <source>
+                    @type http
+                    port 9880
+                </source>
+
+                <match *.**>
+                    @type copy
+
+                    <store>
+                        @type stdout
+                    </store>
+                </match>
+            """
+        })
+
+    def restartContainerService(self, container, service):
+        # Stop the service if it is already running
+        if container.get_service(service).is_running():
+            container.stop(service)
+        # Restart it and report a new status to Juju
+        container.start(service)
+        logging.info("Restarted {0} service".format(service))
+    
+    def addSectionToFluentConf(self, fluentConfig, insertionPoint, newSection):
+        oldFluentConfig = fluentConfig.split(insertionPoint)
+        newFluentConfig = oldFluentConfig[0] + insertionPoint + newSection + oldFluentConfig[1]
+        return newFluentConfig
+
+    def removeSectionFromFluentConf(self, fluentConfig, sectionToRemove):
+        newFluentConfig = fluentConfig.split(sectionToRemove)
+        fluentConfig = newFluentConfig[0] + newFluentConfig[1]
 
     def _on_config_changed(self, event):
         """Handle the config changed event."""
@@ -48,11 +86,14 @@ class FluentdOperatorCharm(CharmBase):
                 "fluentd": {
                     "override": "replace",
                     "summary": "fluentd service",
-                    "command": "tini -- /bin/entrypoint.sh fluentd",
+                    "command": "tini -s -- /bin/entrypoint.sh fluentd",
                     "startup": "enabled",
-                    "environment": {"FLUENT_ELASTICSEARCH_HOST": self.model.config["elasticsearch-hostname"],
-                                    "FLUENT_ELASTICSEARCH_PORT": self.model.config["elasticsearch-port"],
-                                   },
+                    # "environment": {
+                    #                 "FLUENT_ELASTICSEARCH_HOST": self.model.config["elasticsearch-hostname"],
+                    #                 "FLUENT_ELASTICSEARCH_PORT": self.model.config["elasticsearch-port"],
+                    #                 # "FLUENT_ELASTICSEARCH_HOST": self._stored.data['host'],
+                    #                 # "FLUENT_ELASTICSEARCH_PORT": self._stored.data['port'],
+                    #                },
                 }
             },
         }
@@ -73,42 +114,70 @@ class FluentdOperatorCharm(CharmBase):
             # Changes were made, add the new layer
             container.add_layer("fluentd", layer, combine=True)
             logging.info("Added updated layer 'fluentd' to Pebble plan")
-            # Stop the service if it is already running
-            if container.get_service("fluentd").is_running():
-                container.stop("fluentd")
-            # Restart it and report a new status to Juju
-            container.start("fluentd")
-            logging.info("Restarted fluentd service")
+            self.restartContainerService(container=container, service="fluentd")
         # All is well, set an ActiveStatus
         self.unit.status = ActiveStatus()
 
     def _on_elasticsearch_relation_changed(self, event) -> None:
-        # Do nothing if we're not the leader
-        if not self.unit.is_leader():
-            return
-
         # Check if the remote unit has set the 'port' field in the
         # application data bucket
         host = event.relation.data[event.unit].get("private-address")
-        logging.info(host)
         port = event.relation.data[event.unit].get("port")
-        logging.info(port)
+        logging.info("Elasticsearch Host: {0}".format(host))
+        logging.info("Elasticsearch Port: {0}".format(port))
+        if host == None or port == None:
+            # Elasticsearch relation data not fully populated yet
+            return
 
-        # Store some data from the relation in local state
-        # self._stored.things.update({event.relation.id: {"port": port}})
+        container = self.unit.get_container("fluentd")
+        fluentConfig = container.pull('/fluentd/etc/fluent.conf').read()
+        logging.info("Current fluent.conf:\n{0}".format(fluentConfig))
+        elasticsearchOutputConfig = """
+        <store>
+            @type elasticsearch
+            host {0}
+            port {1}
+            logstash_format true
+            logstash_prefix fluentd
+            logstash_dateformat %Y%m%d
+            include_tag_key true
+            type_name access_log
+            tag_key @log_name
+            flush_interval 1s
+        </store>""".format(host, port)
+        logging.info(elasticsearchOutputConfig)
+        if fluentConfig.find(elasticsearchOutputConfig) == -1:
+            newFluentConfig = self.addSectionToFluentConf(
+                fluentConfig=fluentConfig, 
+                insertionPoint="@type copy", 
+                newSection=elasticsearchOutputConfig
+            )
+            self._stored.data['elasticsearchOutputConfig'] = elasticsearchOutputConfig
+            self._stored.data['fluentConfig'] = newFluentConfig
+            logging.info("New fluent.conf:\n{0}".format(newFluentConfig))
+            container.push('/fluentd/etc/fluent.conf', newFluentConfig, make_dirs=True)
+            self.restartContainerService(container=container, service="fluentd")
 
-        # Fetch data from the unit data bag if available
-        # if event.unit:
-        #     unit_field = event.relation.data[event.unit].get("special-field")
-        #     logger.info("Got data in the unit bag from the relation: %s", unit_field)
+        self._on_config_changed(event)
 
-        # Set some application data for the remote application
-        # to consume. We can do this because we're the leader
-        # event.relation.data[self.app].update({"token": f"{uuid4()}"})
+    def _on_elasticsearch_relation_broken(self, event) -> None:
+        logging.info("Cleanup elasticsearch config")
+        elasticsearchOutputConfig = self._stored.data['elasticsearchOutputConfig']
 
-        # Do something
-        # self._on_config_changed(event)
+        container = self.unit.get_container("fluentd")
+        fluentConfig = container.pull('/fluentd/etc/fluent.conf').read()
+        fluentConfig = fluentConfig.replace(elasticsearchOutputConfig, "")
+        self._stored.data['fluentConfig'] = fluentConfig
+        self._stored.data.pop('elasticsearchOutputConfig', None)
+        container.push('/fluentd/etc/fluent.conf', fluentConfig, make_dirs=True)
 
+        self.restartContainerService(container=container, service="fluentd")
+
+    def _on_update_status(self, event) -> None:
+        container = self.unit.get_container("fluentd")
+        fluentConfig = container.pull('/fluentd/etc/fluent.conf').read()
+        logging.info(fluentConfig)
+        logging.info(self._stored.data)
 
 if __name__ == "__main__":
     main(FluentdOperatorCharm)
