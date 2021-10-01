@@ -21,7 +21,10 @@ Then in this git repository run the command
     juju deploy ./fluentd-operator.charm \
         --resource fluentd-image=karimsye/custom-fluentd:latest
 
-> Note: HA functionality not yet supported so juju add-unit and juju scale commands will produce errors and/or split brain scenarios
+## Relate to Elasticsearch Operator Charm
+
+    juju deploy elasticsearch-k8s
+    juju add-relation elasticsearch-k8s fluentd-operator
 
 ## Developing
 
